@@ -1,7 +1,7 @@
 {
   "name": "gd-bot",
   "version": "1.0.0",
-  "description": "A professional Geometry Dash level search Discord bot.",
+  "description": "Discord bot for searching Geometry Dash levels.",
   "type": "module",
   "main": "bot.js",
   "scripts": {
@@ -11,6 +11,7 @@
     "@discordjs/rest": "^2.4.0",
     "discord.js": "^14.15.0",
     "discord-api-types": "^0.37.71",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "geometry-dash-api": "^1.2.7"
   }
 }
