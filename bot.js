@@ -1,31 +1,30 @@
-/*
-Single-file Discord bot (Node.js) to search Geometry Dash levels by multiple filters.
-Features:
- - /findlevel slash command with filters: query, lengthCategory, exactLengthSeconds, minObjects, maxObjects, exactObjects, requiredObjectIds, difficulty, limit
- - Uses gd.js to search + decode levels and filters by object counts and object IDs
- - Professional embeds and emojis
+// bot.js (ESM-compatible)
+// Node 18+ / 22+ recommended
+// Make sure package.json contains "type": "module" if you want to run as ESM.
+// dotenv is optional; create a .env with BOT_TOKEN, CLIENT_ID, GUILD_ID if you use it.
 
-Setup:
- - NODE 16+
- - npm install discord.js @discordjs/rest gd.js node-fetch
- - Create a .env with BOT_TOKEN, CLIENT_ID, GUILD_ID (for testing)
- - Run: node gd_discord_bot.js
+import dotenv from 'dotenv';
+dotenv.config();
 
-Notes about exact length: gd.js provides level metadata in decoded data when available. The bot will use any available "lengthSeconds" (or similar metadata) if present. Not all levels expose exact seconds; when not available those levels are skipped for exact-length matches.
-*/
+import { REST } from '@discordjs/rest';
+import { Routes } from 'discord-api-types/v10';
+import {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
+} from 'discord.js';
 
-require('dotenv').config && require('dotenv').config(); // optional: load .env if present
-const fetch = require('node-fetch');
-if (!global.fetch) global.fetch = fetch;
+// dynamic import for gd.js so this file stays ESM-friendly
+const GDModule = await import('gd.js');
+const GD = GDModule.default || GDModule.GD || GDModule;
 
-const { REST } = require('@discordjs/rest');
-const { Routes } = require('discord-api-types/v10');
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const GD = require('gd.js');
-
+// Environment variables
 const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID; // application id
-const GUILD_ID = process.env.GUILD_ID;   // recommended for rapid command registration while testing
+const GUILD_ID = process.env.GUILD_ID;   // recommended for testing
 
 if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
   console.error('Missing environment variables. Please set BOT_TOKEN, CLIENT_ID and GUILD_ID.');
@@ -73,14 +72,12 @@ function parseIdList(raw) {
 
 // Helper: best-effort extract length seconds from decoded data or level object
 function extractLengthSeconds(level, decoded) {
-  // 1) try decoded.parsed.meta.lengthSeconds or decoded.parsed.meta.length
   try {
     if (decoded && decoded.parsed && decoded.parsed.meta) {
       const meta = decoded.parsed.meta;
       if (typeof meta.lengthSeconds === 'number') return meta.lengthSeconds;
       if (typeof meta.length === 'number') return meta.length;
       if (typeof meta.realLength === 'number') return meta.realLength;
-      // sometimes it's a string like "31s" or "31"
       if (typeof meta.length === 'string') {
         const m = meta.length.match(/(\d+(?:\.\d+)?)/);
         if (m) return Number(m[1]);
@@ -88,10 +85,8 @@ function extractLengthSeconds(level, decoded) {
     }
   } catch (e) {}
 
-  // 2) try level.length if present and numeric
   try {
     if (level && level.length) {
-      // common shapes: level.length.raw or level.length.seconds
       if (typeof level.length === 'number') return level.length;
       if (typeof level.length.seconds === 'number') return level.length.seconds;
       if (typeof level.length.raw === 'number') return level.length.raw;
@@ -102,7 +97,6 @@ function extractLengthSeconds(level, decoded) {
     }
   } catch (e) {}
 
-  // unknown
   return null;
 }
 
@@ -110,7 +104,7 @@ function extractLengthSeconds(level, decoded) {
 async function findLevelsWithFilters(opts) {
   const {
     query = '',
-    lengthCategory = null, // 'short'|'normal'|'long'|'xl'
+    lengthCategory = null,
     minObjects = 0,
     maxObjects = Infinity,
     exactObjects = null,
@@ -125,9 +119,7 @@ async function findLevelsWithFilters(opts) {
   if (lengthCategory) searchOpts.length = lengthCategory;
   if (difficulty && difficulty.toLowerCase() !== 'auto') searchOpts.difficulty = difficulty.toLowerCase();
 
-  // clamp limit
   const checkLimit = Math.min(Math.max(limit || 1, 1), 100);
-
   const results = [];
 
   const searched = await gd.levels.search(searchOpts, checkLimit);
@@ -139,30 +131,23 @@ async function findLevelsWithFilters(opts) {
       const objects = (decoded && decoded.parsed && decoded.parsed.data) || [];
       const objCount = objects.length;
 
-      // object count filters
       if (exactObjects !== null && objCount !== exactObjects) continue;
       if (objCount < minObjects) continue;
       if (objCount > maxObjects) continue;
 
-      // object id presence
       if (requiredObjectIds.length > 0) {
         const hasAll = requiredObjectIds.every(req => objects.some(o => Number(o.id) === Number(req)));
         if (!hasAll) continue;
       }
 
-      // exact length seconds filter (best-effort)
       if (exactLengthSeconds !== null) {
         const lenSec = extractLengthSeconds(lvl, decoded);
-        if (lenSec === null) continue; // can't verify length -> skip
-        // allow tiny tolerance (0.3s) for float rounding
+        if (lenSec === null) continue;
         if (Math.abs(lenSec - exactLengthSeconds) > 0.3) continue;
       }
 
-      // collect
       results.push({ lvl, decoded, objectCount: objCount });
-
     } catch (err) {
-      // ignore decode/resolution errors
       console.warn('Level skipped (resolve/decode error):', err && err.message ? err.message : err);
       continue;
     }
@@ -176,7 +161,6 @@ function makeResultsEmbed(query, matches, page = 0, perPage = 5) {
   const embed = new EmbedBuilder()
     .setTitle('🔎 Geometry Dash Level Search Results')
     .setDescription(query ? `Query: \`${query}\`` : 'Query: `—`')
-    .setFooter({ text: `Showing ${Math.min(matches.length, 1 + page * perPage)}-${Math.min(matches.length, (page + 1) * perPage)} of ${matches.length} results` })
     .setTimestamp();
 
   const start = page * perPage;
@@ -203,11 +187,11 @@ function makeResultsEmbed(query, matches, page = 0, perPage = 5) {
   return embed;
 }
 
-// Simple paginator buttons (Prev / Next) - ephemeral per-user
+// Simple paginator buttons (Prev / Next)
 function makePaginatorRow(page, totalPages) {
   const row = new ActionRowBuilder();
-  const prev = new ButtonBuilder().setCustomId('prev_page').setLabel('Prev').setStyle(ButtonStyle.Primary).setDisabled(page <= 0);
-  const next = new ButtonBuilder().setCustomId('next_page').setLabel('Next').setStyle(ButtonStyle.Primary).setDisabled(page >= totalPages - 1);
+  const prev = new ButtonBuilder().setCustomId('prev_page').setLabel('⬅️ Prev').setStyle(ButtonStyle.Primary).setDisabled(page <= 0);
+  const next = new ButtonBuilder().setCustomId('next_page').setLabel('Next ➡️').setStyle(ButtonStyle.Primary).setDisabled(page >= totalPages - 1);
   row.addComponents(prev, next);
   return row;
 }
@@ -233,7 +217,6 @@ client.on('interactionCreate', async (interaction) => {
     const difficulty = interaction.options.getString('difficulty') || null;
     const limit = interaction.options.getInteger('limit') || 30;
 
-    // Build options
     const opts = {
       query,
       lengthCategory,
@@ -246,29 +229,24 @@ client.on('interactionCreate', async (interaction) => {
       limit
     };
 
-    // Run search (this may take a few seconds depending on 'limit')
     const matches = await findLevelsWithFilters(opts);
 
-    // Prepare embed pages
     const perPage = 5;
     const totalPages = Math.max(1, Math.ceil(matches.length / perPage));
     let page = 0;
     const embed = makeResultsEmbed(query, matches, page, perPage);
 
-    // If no matches, send single embed
     if (matches.length === 0) {
       await interaction.editReply({ embeds: [embed] });
       return;
     }
 
-    // Send reply with paginator if multiple pages
     const components = totalPages > 1 ? [makePaginatorRow(page, totalPages)] : [];
     const reply = await interaction.editReply({ embeds: [embed], components });
 
     if (totalPages <= 1) return;
 
-    // Create collector for buttons for this message
-    const collector = reply.createMessageComponentCollector({ time: 120000 }); // 2 minutes
+    const collector = reply.createMessageComponentCollector({ time: 120000 });
     collector.on('collect', async (i) => {
       if (i.user.id !== interaction.user.id) {
         await i.reply({ content: 'These buttons are not for you.', ephemeral: true });
