@@ -1,17 +1,19 @@
 {
   "name": "gd-bot",
   "version": "1.0.0",
-  "description": "Discord bot for searching Geometry Dash levels.",
+  "description": "Geometry Dash level search Discord bot (ESM).",
   "type": "module",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@discordjs/rest": "^2.4.0",
-    "discord.js": "^14.15.0",
     "discord-api-types": "^0.37.71",
-    "dotenv": "^16.4.5",
-    "geometry-dash-api": "^1.2.7"
+    "discord.js": "^14.15.0",
+    "dotenv": "^16.4.5"
   }
 }
